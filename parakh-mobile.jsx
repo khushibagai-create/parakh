@@ -452,6 +452,19 @@ function SignUp({ onNext, onBack }) {
 
   const sendOtp = () => {
     if (!canSendOtp) return;
+    // Best-effort save to Google Sheet — don't block the flow on it
+    if (window.PARAKH_SHEET_URL) {
+      fetch(window.PARAKH_SHEET_URL, {
+        method: "POST",
+        // text/plain avoids CORS preflight (Apps Script doesn't support OPTIONS)
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          name, phone: phoneDigits,
+          dial: country.dial, country: country.name,
+          userAgent: navigator.userAgent,
+        }),
+      }).catch((e) => console.warn("sheet save failed:", e));
+    }
     onNext && onNext({ name, phone: phoneDigits, dial: country.dial });
   };
   const setOtpAt = (i, val) => {
