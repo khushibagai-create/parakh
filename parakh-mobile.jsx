@@ -102,7 +102,7 @@ function CountryPicker({ open, onClose, onPick, current }) {
 }
 
 /* ---------- Steps ---------- */
-const STEPS = ["splash", "value", "signup", "scanner", "verdict"];
+const STEPS = ["scanner", "signup", "verdict", "about"];
 
 function Progress({ idx, dark }) {
   return (
@@ -202,7 +202,7 @@ const SCAN_TESTS = [
   { key: "pest", label: "Pesticide", deva: "कीटनाशक", meta: "SHEEN" },
 ];
 
-function Scanner({ onComplete, onBack }) {
+function Scanner({ onComplete, onBack, onCaptured, isSignedUp, pendingImage, onAbout }) {
   const [phase, setPhase] = useState("framing"); // framing | scanning | error
   const [active, setActive] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -327,8 +327,23 @@ function Scanner({ onComplete, onBack }) {
   const handleCapture = () => {
     const url = captureFromVideo();
     if (!url) { setError("Couldn't capture frame"); setPhase("error"); return; }
+    // New users: freeze the image, route to signup. We'll auto-scan after they sign up.
+    if (!isSignedUp && onCaptured) {
+      setCapturedUrl(url);
+      stopCamera();
+      onCaptured(url);
+      return;
+    }
     sendImage(url);
   };
+
+  // After signup, the user comes back here with a pending image — auto-scan it
+  useEffect(() => {
+    if (isSignedUp && pendingImage) {
+      sendImage(pendingImage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleFile = (e) => {
     const f = e.target.files?.[0];
@@ -378,11 +393,11 @@ function Scanner({ onComplete, onBack }) {
 
       {phase === "framing" && (
         <div className="m-cap-bar">
-          <button className="m-cap-ghost" onClick={onBack}>Back</button>
+          <button className="m-cap-ghost" onClick={() => fileRef.current?.click()}>Upload</button>
           <button className="m-cap-shutter" onClick={handleCapture} disabled={!camReady} aria-label="Capture">
             <span/>
           </button>
-          <button className="m-cap-ghost" onClick={() => fileRef.current?.click()}>Upload</button>
+          <button className="m-cap-ghost" onClick={onAbout}>About</button>
           <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={handleFile}/>
         </div>
       )}
@@ -678,6 +693,61 @@ function Verdict({ name, result, onRestart, onRetake }) {
   );
 }
 
+/* ---------- About (formerly Splash + Value) ---------- */
+function About({ onBack }) {
+  return (
+    <div className="m-screen">
+      <div className="m-content m-top screen-enter">
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 16}}>
+          <BackLink onClick={onBack}/>
+        </div>
+        <div className="m-signup-stamp" style={{margin:"0 auto 20px"}}>
+          <AssayStamp color="var(--ink)" tilak="var(--tilak)" micro={false}/>
+          <div className="deva-c">परख</div>
+        </div>
+        <p className="m-eyebrow">About · what we test</p>
+        <div className="m-value-hed">
+          <h1>Trust. <em>Then buy.</em></h1>
+          <p>Hold a fruit up to the camera. Parakh runs four checks — the same kind a jeweller runs on gold — and gives one verdict.</p>
+        </div>
+        <div className="m-tests">
+          <div className="m-test-card">
+            <div className="icon">{Icons.ripeness}</div>
+            <div>
+              <h3><span className="deva">पकाव ·</span>Ripeness</h3>
+              <p>Color, surface, stem condition.</p>
+            </div>
+          </div>
+          <div className="m-test-card">
+            <div className="icon">{Icons.dye}</div>
+            <div>
+              <h3><span className="deva">रंग ·</span>Surface dye</h3>
+              <p>Artificial color washed onto the skin.</p>
+            </div>
+          </div>
+          <div className="m-test-card">
+            <div className="icon">{Icons.carbide}</div>
+            <div>
+              <h3><span className="deva">मसाला ·</span>Carbide ripening</h3>
+              <p>Forced ripening with calcium carbide.</p>
+            </div>
+          </div>
+          <div className="m-test-card">
+            <div className="icon">{Icons.pesticide}</div>
+            <div>
+              <h3><span className="deva">कीटनाशक ·</span>Pesticide signs</h3>
+              <p>Residue, oily sheen, surface waxing.</p>
+            </div>
+          </div>
+        </div>
+        <div className="m-bottom-bar">
+          <button className="m-btn tilak" onClick={onBack}>Back to camera</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- App ---------- */
 const USER_KEY = "parakh:user";
 
@@ -692,20 +762,12 @@ function App() {
     return i >= 0 ? i : 0;
   });
   const [result, setResult] = useState(null);
+  const [pendingImage, setPendingImage] = useState(null);
 
   // Persist user across reloads
   useEffect(() => {
     if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
   }, [user]);
-
-  // Returning users: skip straight to the camera on page load
-  useEffect(() => {
-    const cur = STEPS[idx];
-    if (user && (cur === "splash" || cur === "value" || cur === "signup")) {
-      setIdx(STEPS.indexOf("scanner"));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => { location.hash = STEPS[idx]; }, [idx]);
   useEffect(() => {
@@ -717,25 +779,47 @@ function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, [idx]);
 
-  // Advance — skip the signup step if the user is already signed up
-  const next = () => setIdx(i => {
-    let n = Math.min(STEPS.length - 1, i + 1);
-    if (STEPS[n] === "signup" && user) n = STEPS.indexOf("scanner");
-    return n;
-  });
-  const back = () => setIdx(i => Math.max(0, i - 1));
-  // "Scan another" — returning user goes back to camera, new user goes to splash
-  const restart = () => { setResult(null); setIdx(user ? STEPS.indexOf("scanner") : 0); };
+  const goToScanner = () => setIdx(STEPS.indexOf("scanner"));
+  const goToAbout = () => setIdx(STEPS.indexOf("about"));
   const cur = STEPS[idx];
 
-  const goToScanner = () => setIdx(STEPS.indexOf("scanner"));
+  // New user takes a photo → cache image, route to signup
+  const handleCaptured = (dataUrl) => {
+    setPendingImage(dataUrl);
+    setIdx(STEPS.indexOf("signup"));
+  };
+
+  // After signup, the scanner re-mounts and auto-scans the cached image
+  const handleSignupDone = (u) => {
+    setUser(u);
+    setIdx(STEPS.indexOf("scanner"));
+  };
+
+  const handleScanComplete = (data) => {
+    setResult(data);
+    setPendingImage(null);
+    setIdx(STEPS.indexOf("verdict"));
+  };
+
+  const restart = () => { setResult(null); goToScanner(); };
 
   let screen;
-  if (cur === "splash")  screen = <Splash onNext={next}/>;
-  if (cur === "value")   screen = <ValueProp onNext={next} onBack={back}/>;
-  if (cur === "scanner") screen = <Scanner key={"sc"+idx} onComplete={(data) => { setResult(data); setIdx(STEPS.indexOf("verdict")); }} onBack={back}/>;
-  if (cur === "signup")  screen = <SignUp onNext={(u) => { setUser(u); next(); }} onBack={back}/>;
+  if (cur === "scanner") {
+    screen = (
+      <Scanner
+        key={"sc"+idx+(pendingImage ? ":pi" : "")}
+        isSignedUp={!!user}
+        pendingImage={pendingImage}
+        onCaptured={handleCaptured}
+        onComplete={handleScanComplete}
+        onBack={goToScanner}
+        onAbout={goToAbout}
+      />
+    );
+  }
+  if (cur === "signup")  screen = <SignUp onNext={handleSignupDone} onBack={goToScanner}/>;
   if (cur === "verdict") screen = <Verdict name={user?.name} result={result} onRestart={restart} onRetake={goToScanner}/>;
+  if (cur === "about")   screen = <About onBack={goToScanner}/>;
 
   return (
     <div data-screen-label={`${String(idx+1).padStart(2,'0')} ${cur}`} style={{height:'100%'}}>

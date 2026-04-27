@@ -316,6 +316,19 @@ body {
   z-index: 3;
 }
 .m-vf-meta .live { display: inline-flex; align-items: center; gap: 8px; }
+.m-vf-info {
+  background: rgba(244,238,226,0.10);
+  border: 1px solid rgba(244,238,226,0.18);
+  color: rgba(244,238,226,0.85);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.m-vf-info:active { background: rgba(244,238,226,0.18); }
 .m-vf-meta .live i {
   width: 7px; height: 7px; border-radius: 50%; background: var(--tilak);
   box-shadow: 0 0 0 0 rgba(194,90,31,0.6);
